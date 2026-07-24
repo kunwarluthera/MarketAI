@@ -1,0 +1,120 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R 6 0 R 8 0 R 10 0 R 12 0 R 14 0 R 16 0 R 18 0 R 20 0 R] /Count 9 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>
+endobj
+5 0 obj
+<< /Length 1727 >>
+stream
+BT /F1 9 Tf 45 760 Td 11 TL (Market AI — Architecture Guide) Tj T* () Tj T* (This document explains what the application does, why it exists, how its pieces connect, and how to read ) Tj T* (the code.) Tj T* () Tj T* (1. What problem does this application solve?) Tj T* () Tj T* (Market AI is a paper-trading platform for testing a durable, auditable trading workflow without sending r) Tj T* (eal broker orders.) Tj T* () Tj T* (It models the complete lifecycle of a trade:) Tj T* () Tj T* (text) Tj T* (market data) Tj T* (→ analysis) Tj T* (→ trading decision) Tj T* (→ risk checks) Tj T* (→ human approval) Tj T* (→ paper order and fill) Tj T* (→ position and cash ledger) Tj T* (→ automatic stop/target or EOD exit) Tj T* (→ audit and reconciliation) Tj T* () Tj T* () Tj T* (The main goal is not simply to show a BUY/SELL recommendation. The goal is to prove that every financial ) Tj T* (effect is persisted consistently and can survive retries, restarts, duplicate jobs, and failed transactio) Tj T* (ns.) Tj T* () Tj T* (Live broker trading is intentionally disabled:) Tj T* () Tj T* (text) Tj T* (LIVE_TRADING_ENABLED=false) Tj T* () Tj T* () Tj T* (2. System at a glance) Tj T* () Tj T* (mermaid) Tj T* (flowchart TD) Tj T* (User[Trader or Web UI] --> API[FastAPI API\\napps/api/app/main.py]) Tj T* (API --> Auth[Authentication]) Tj T* (API --> Trading[Paper Trading Service\\napp/paper_trading/service.py]) Tj T* (API --> Domain[Market Calculations\\napp/domain.py]) Tj T* (API --> Risk[Risk Rules\\napp/risk]) Tj T* (API --> Jobs[Scheduler API\\napp/scheduler/service.py]) Tj T* () Tj T* (Worker[Background Worker\\napps/worker] --> Jobs) Tj T* (Jobs --> Trading) Tj T* (Jobs --> Domain) Tj T* ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 7 0 R >>
+endobj
+7 0 obj
+<< /Length 2380 >>
+stream
+BT /F1 9 Tf 45 760 Td 11 TL () Tj T* (Trading --> Portfolio[Portfolio Calculations\\napp/portfolio/domain.py]) Tj T* (Trading --> Ledger[Cash Ledger]) Tj T* (Trading --> Snapshots[Portfolio Snapshots]) Tj T* (Trading --> Audit[Audit Service\\napp/audit/service.py]) Tj T* (Jobs --> Alerts[Durable Alerts]) Tj T* () Tj T* (API --> DB[\(PostgreSQL\)]) Tj T* (Trading --> DB) Tj T* (Jobs --> DB) Tj T* (Audit --> DB) Tj T* (Migrations[Alembic Migrations] --> DB) Tj T* () Tj T* () Tj T* (3. The application in one sentence) Tj T* () Tj T* (The API and worker create a durable paper-trading state machine where market data produces decisions, app) Tj T* (roved decisions produce financial records, and every exit is atomic, auditable, and reconciled.) Tj T* () Tj T* (4. Repository map) Tj T* () Tj T* (text) Tj T* (apps/) Tj T* (├── api/) Tj T* (│   ├── app/) Tj T* (│   │   ├── main.py                 HTTP endpoints and request handling) Tj T* (│   │   ├── config.py               environment and runtime settings) Tj T* (│   │   ├── domain.py               pure candle/features/regime calculations) Tj T* (│   │   ├── common/) Tj T* (│   │   │   ├── db.py               SQLAlchemy engine and sessions) Tj T* (│   │   │   ├── models.py           PostgreSQL models) Tj T* (│   │   │   └── test_database.py    disposable DB safety checks) Tj T* (│   │   ├── paper_trading/) Tj T* (│   │   │   ├── service.py          core trading workflows) Tj T* (│   │   │   └── daily_pnl.py         daily P&L calculation) Tj T* (│   │   ├── portfolio/domain.py     pure P&L and averaging calculations) Tj T* (│   │   ├── risk/                    risk configuration and evaluation) Tj T* (│   │   ├── scheduler/               durable background jobs) Tj T* (│   │   └── audit/service.py         append-only audit events) Tj T* (│   ├── alembic/                     database migrations) Tj T* (│   └── tests/                       unit and PostgreSQL integration tests) Tj T* (├── worker/worker.py                background polling worker) Tj T* (└── web/                             frontend application) Tj T* () Tj T* () Tj T* (5. Core business flow) Tj T* () Tj T* (5.1 Market data to decision) Tj T* ET
+endstream
+endobj
+8 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 9 0 R >>
+endobj
+9 0 obj
+<< /Length 1787 >>
+stream
+BT /F1 9 Tf 45 760 Td 11 TL () Tj T* (mermaid) Tj T* (sequenceDiagram) Tj T* (participant Market as Market Data) Tj T* (participant Scheduler) Tj T* (participant DB as PostgreSQL) Tj T* (participant Domain as domain.py) Tj T* (participant Decision as paper_trading/service.py) Tj T* () Tj T* (Market->>Scheduler: simulated quote/candle update) Tj T* (Scheduler->>DB: persist MarketSnapshot / MarketCandle) Tj T* (Scheduler->>Domain: calculate features and regime) Tj T* (Domain-->>Scheduler: indicators and classification) Tj T* (Scheduler->>Decision: generate_decision\(\)) Tj T* (Decision->>DB: StrategySignal, Candidate, Decision, RiskEvaluation) Tj T* (Decision-->>DB: ApprovalRequest when BUY is actionable) Tj T* () Tj T* () Tj T* (5.2 Approval to paper entry) Tj T* () Tj T* (mermaid) Tj T* (sequenceDiagram) Tj T* (participant User) Tj T* (participant API as main.py) Tj T* (participant Service as approve_and_fill\(\)) Tj T* (participant DB as PostgreSQL) Tj T* () Tj T* (User->>API: approve decision) Tj T* (API->>Service: approve_and_fill\(approval_id, idempotency_key\)) Tj T* (Service->>DB: lock ApprovalRequest) Tj T* (Service->>DB: create filled BUY Order) Tj T* (Service->>DB: create OrderEvent) Tj T* (Service->>DB: create BUY Trade) Tj T* (Service->>DB: create/update Position) Tj T* (Service->>DB: write CashLedger) Tj T* (Service->>DB: create PortfolioSnapshot) Tj T* (Service->>DB: append AuditLog) Tj T* (Service-->>API: durable order result) Tj T* () Tj T* () Tj T* (5.3 Automatic exit) Tj T* () Tj T* (mermaid) Tj T* (flowchart TD) Tj T* (Source[Fresh quote or completed candle] --> Evaluate[STOP_TARGET_EVALUATION]) Tj T* (Evaluate --> Stop{Stop touched?}) Tj T* (Stop -->|yes| StopExit[STOP_LOSS_TRIGGERED]) Tj T* (Stop -->|no| Target{Target touched?}) Tj T* ET
+endstream
+endobj
+10 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 11 0 R >>
+endobj
+11 0 obj
+<< /Length 2160 >>
+stream
+BT /F1 9 Tf 45 760 Td 11 TL (Target -->|yes| TargetExit[TARGET_TRIGGERED]) Tj T* (Target -->|no| Keep[Position remains open]) Tj T* (StopExit --> Exit[exit_position\(\)]) Tj T* (TargetExit --> Exit) Tj T* (Exit --> Sell[SELL order + event + trade]) Tj T* (Sell --> Position[Update position]) Tj T* (Position --> Effects[Ledger + snapshot + audit + review]) Tj T* () Tj T* () Tj T* (6. Main modules and their responsibilities) Tj T* () Tj T* (main.py — transport layer) Tj T* () Tj T* (This file translates HTTP requests into service calls. It should not contain the financial calculations t) Tj T* (hemselves.) Tj T* () Tj T* (Important endpoints:) Tj T* () Tj T* (| Endpoint | Function | Purpose |) Tj T* (|---|---|---|) Tj T* (| GET /health | health\(\) | liveness check |) Tj T* (| GET /readiness | readiness\(\) | database readiness |) Tj T* (| GET /api/v1/scanner/results | scanner\(\) | show current scanner output |) Tj T* (| POST /api/v1/decisions/generate | generate\(\) | create a decision |) Tj T* (| POST /api/v1/approvals/{id}/approve | approve\(\) | approve and fill a BUY |) Tj T* (| GET /api/v1/paper/positions | positions\(\) | list open positions |) Tj T* (| POST /api/v1/paper/positions/{id}/exit | position_exit\(\) | manually exit a position |) Tj T* (| GET /api/v1/paper/portfolio | get_portfolio\(\) | current portfolio state |) Tj T* (| POST /api/v1/paper/reconcile | reconcile_api\(\) | verify financial consistency |) Tj T* (| POST /api/v1/system/jobs/{type}/run | run_job_api\(\) | execute a durable job |) Tj T* (| GET /api/v1/alerts | alerts\(\) | inspect durable alerts |) Tj T* () Tj T* (domain.py — pure market logic) Tj T* () Tj T* (Key functions:) Tj T* () Tj T* (- aggregate_candle\(ticks\): turns ticks into an OHLCV candle.) Tj T* (- features\(candles\): computes VWAP, EMA, RSI, volume and data quality.) Tj T* (- regime\(candles\): classifies the market regime.) Tj T* () Tj T* (This layer should be deterministic and database-independent.) Tj T* () Tj T* (paper_trading/service.py — financial core) Tj T* () Tj T* (Read this file in this order:) Tj T* () Tj T* (1. cash_balance\(\)) Tj T* (2. setting\(\)) Tj T* ET
+endstream
+endobj
+12 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 13 0 R >>
+endobj
+13 0 obj
+<< /Length 1746 >>
+stream
+BT /F1 9 Tf 45 760 Td 11 TL (3. add_ledger\(\)) Tj T* (4. snapshot\(\)) Tj T* (5. seed\(\)) Tj T* (6. candles_for\(\)) Tj T* (7. scan\(\)) Tj T* (8. generate_decision\(\)) Tj T* (9. approve_and_fill\(\)) Tj T* (10. exit_position\(\)) Tj T* (11. portfolio\(\)) Tj T* (12. reconcile\(\)) Tj T* () Tj T* (The two most important functions are:) Tj T* () Tj T* (approve_and_fill\(\)) Tj T* () Tj T* (Creates the complete BUY-side financial lifecycle.) Tj T* () Tj T* (exit_position\(\)) Tj T* () Tj T* (Creates the complete SELL-side financial lifecycle and is reused by manual, stop, target, and EOD exits.) Tj T* () Tj T* (scheduler/service.py — durable orchestration) Tj T* () Tj T* (The scheduler does not replace the trading service. It decides when a workflow should run, then calls the) Tj T* ( existing services.) Tj T* () Tj T* (Important jobs:) Tj T* () Tj T* (| Job | Responsibility |) Tj T* (|---|---|) Tj T* (| SIMULATED_PRICE_UPDATE | create deterministic market snapshots |) Tj T* (| CANDLE_FINALISATION | turn snapshots into completed candles |) Tj T* (| FEATURE_REFRESH | persist feature snapshots |) Tj T* (| MARKET_REGIME_REFRESH | persist regime classifications |) Tj T* (| DECISION_SCAN | generate decisions for eligible instruments |) Tj T* (| STOP_TARGET_EVALUATION | evaluate automatic stop/target exits |) Tj T* (| EOD_POSITION_EXIT | close eligible intraday positions at EOD |) Tj T* (| STALE_DATA_CHECK | create/update/resolve data alerts |) Tj T* (| TRADE_REVIEW_CREATION | create reviews for completed trades |) Tj T* () Tj T* (models.py — durable state) Tj T* () Tj T* (Important records:) Tj T* () Tj T* (text) Tj T* (Instrument) Tj T* (MarketCandle / MarketSnapshot) Tj T* (TradeDecision / ApprovalRequest) Tj T* ET
+endstream
+endobj
+14 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 15 0 R >>
+endobj
+15 0 obj
+<< /Length 1327 >>
+stream
+BT /F1 9 Tf 45 760 Td 11 TL (Order / OrderEvent / Trade) Tj T* (Position) Tj T* (CashLedger) Tj T* (PortfolioSnapshot) Tj T* (Alert) Tj T* (AuditLog) Tj T* (ScheduledJob / JobRun) Tj T* (TradeReview) Tj T* () Tj T* () Tj T* (7. Data relationships) Tj T* () Tj T* (mermaid) Tj T* (erDiagram) Tj T* (INSTRUMENT ||--o{ MARKET_CANDLE : owns) Tj T* (INSTRUMENT ||--o{ MARKET_SNAPSHOT : owns) Tj T* (INSTRUMENT ||--o{ TRADE_DECISION : receives) Tj T* (TRADE_DECISION ||--o| APPROVAL_REQUEST : requires) Tj T* (APPROVAL_REQUEST ||--o{ ORDER : authorizes) Tj T* (ORDER ||--o{ ORDER_EVENT : produces) Tj T* (ORDER ||--o{ TRADE : creates) Tj T* (INSTRUMENT ||--o{ POSITION : represents) Tj T* (POSITION ||--o{ TRADE : changes) Tj T* (TRADE ||--o{ CASH_LEDGER : affects) Tj T* (TRADE ||--o| TRADE_REVIEW : receives) Tj T* (INSTRUMENT ||--o{ ALERT : scopes) Tj T* () Tj T* () Tj T* (8. Transaction model) Tj T* () Tj T* (Financial operations are designed as atomic units:) Tj T* () Tj T* (text) Tj T* (begin transaction) Tj T* (create order) Tj T* (create order event) Tj T* (create trade) Tj T* (update position) Tj T* (write ledger entries) Tj T* (create snapshot) Tj T* (write audit records) Tj T* (commit) Tj T* () Tj T* () Tj T* (EOD retry attempts use a nested savepoint:) Tj T* () Tj T* (text) Tj T* (outer job transaction) Tj T* ET
+endstream
+endobj
+16 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 17 0 R >>
+endobj
+17 0 obj
+<< /Length 1407 >>
+stream
+BT /F1 9 Tf 45 760 Td 11 TL (├── attempt 1 savepoint → failure → rollback savepoint) Tj T* (├── attempt 2 savepoint → failure → rollback savepoint) Tj T* (└── attempt 3 savepoint → success → commit) Tj T* () Tj T* () Tj T* (If all attempts fail, the financial rows are rolled back and one durable EOD_EXIT_FAILED alert is created) Tj T* ( or updated.) Tj T* () Tj T* (9. Identity and idempotency) Tj T* () Tj T* (There are three deliberately separate identities:) Tj T* () Tj T* (Job execution identity) Tj T* () Tj T* (text) Tj T* (<job_type>:<evaluation_timestamp>:<uuid>) Tj T* () Tj T* () Tj T* (Every execution gets a unique JobRun.) Tj T* () Tj T* (Financial identity) Tj T* () Tj T* (For EOD exits, the logical identity is based on:) Tj T* () Tj T* (text) Tj T* (position + IST trading date + EOD_FORCED_EXIT) Tj T* () Tj T* () Tj T* (It remains stable across retries and repeated runs.) Tj T* () Tj T* (Alert identity) Tj T* () Tj T* (Failure alerts use a stable key based on:) Tj T* () Tj T* (text) Tj T* (position + instrument + IST trading date + workflow) Tj T* () Tj T* () Tj T* (The unique JobRun suffix is not used for financial idempotency or alert deduplication.) Tj T* () Tj T* (10. How to trace a feature) Tj T* () Tj T* (Use this workflow when learning any behavior:) Tj T* () Tj T* (text) Tj T* (HTTP endpoint) Tj T* (↓) Tj T* (service function) Tj T* ET
+endstream
+endobj
+18 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 19 0 R >>
+endobj
+19 0 obj
+<< /Length 1444 >>
+stream
+BT /F1 9 Tf 45 760 Td 11 TL (↓) Tj T* (domain calculation or database lookup) Tj T* (↓) Tj T* (financial mutation) Tj T* (↓) Tj T* (ledger / snapshot / audit) Tj T* (↓) Tj T* (API response) Tj T* () Tj T* () Tj T* (For a manual exit, start here:) Tj T* () Tj T* (text) Tj T* (main.position_exit\(\)) Tj T* (→ service.exit_position\(\)) Tj T* (→ Order) Tj T* (→ OrderEvent) Tj T* (→ Trade) Tj T* (→ Position) Tj T* (→ CashLedger) Tj T* (→ PortfolioSnapshot) Tj T* (→ AuditLog) Tj T* () Tj T* () Tj T* (For an automatic EOD exit:) Tj T* () Tj T* (text) Tj T* (main.run_job_api\(\)) Tj T* (→ scheduler.run_job\(\)) Tj T* (→ EOD policy checks) Tj T* (→ market-data validation) Tj T* (→ service.exit_position\(\)) Tj T* (→ financial records) Tj T* () Tj T* () Tj T* (11. Recommended reading sequence) Tj T* () Tj T* (1. Read main.py endpoints.) Tj T* (2. Read common/db.py to understand sessions.) Tj T* (3. Read common/models.py to understand persistent state.) Tj T* (4. Read domain.py for market calculations.) Tj T* (5. Read paper_trading/service.py for BUY and SELL transactions.) Tj T* (6. Read portfolio/domain.py for P&L math.) Tj T* (7. Read risk/domain.py and risk/config_service.py for risk behavior.) Tj T* (8. Read scheduler/eod_policy.py.) Tj T* (9. Read scheduler/service.py for background orchestration.) Tj T* (10. Read integration tests as executable architecture documentation.) Tj T* () Tj T* ET
+endstream
+endobj
+20 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 21 0 R >>
+endobj
+21 0 obj
+<< /Length 1578 >>
+stream
+BT /F1 9 Tf 45 760 Td 11 TL (12. Verification map) Tj T* () Tj T* (The current integration tests document the durable behavior:) Tj T* () Tj T* (text) Tj T* (test_automatic_stop_target.py  → quote/candle stop and target behavior) Tj T* (test_eod_exits.py               → EOD eligibility and missing/stale data) Tj T* (test_eod_retry.py               → savepoints, retries, rollback, recovery) Tj T* (test_stale_data_alerts.py       → alert creation, deduplication, resolution) Tj T* (test_vertical_slice.py          → end-to-end API lifecycle and reconciliation) Tj T* () Tj T* () Tj T* (The tests are useful because they assert database rows, not only HTTP responses or function return values) Tj T* (.) Tj T* () Tj T* (13. Plain-English summary) Tj T* () Tj T* (A user or background job supplies market data. The system turns that data into analysis and a possible de) Tj T* (cision. A decision can require approval. Approval creates a paper BUY order, trade, position, cash moveme) Tj T* (nt, snapshot, and audit trail. Later, a scheduler watches the position for stop, target, or end-of-day co) Tj T* (nditions. An exit uses the same durable transaction path and creates the corresponding SELL-side records.) Tj T* ( If a job fails, savepoints prevent partial financial records. Alerts explain missing, stale, or failed o) Tj T* (perational conditions. Reconciliation checks that the resulting records still agree.) Tj T* () Tj T* (That is the central design: a durable, auditable paper-trading workflow rather than an isolated signal ge) Tj T* (nerator.) Tj T* ET
+endstream
+endobj
+xref
+0 22
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000169 00000 n 
+0000000237 00000 n 
+0000000363 00000 n 
+0000002142 00000 n 
+0000002268 00000 n 
+0000004700 00000 n 
+0000004826 00000 n 
+0000006665 00000 n 
+0000006793 00000 n 
+0000009006 00000 n 
+0000009134 00000 n 
+0000010933 00000 n 
+0000011061 00000 n 
+0000012441 00000 n 
+0000012569 00000 n 
+0000014029 00000 n 
+0000014157 00000 n 
+0000015654 00000 n 
+0000015782 00000 n 
+trailer
+<< /Size 22 /Root 1 0 R >>
+startxref
+17413
+%%EOF
