@@ -56,6 +56,25 @@ from app.common.models import (
     RegistryAuditReport,
     ModelLoadManifest,
     OfflinePredictionRecord,
+    PredictionValidationRequest,
+    PredictionValidationManifest,
+    PredictionValidationEvent,
+    StatisticalValidationRequest,
+    StatisticalValidationResult,
+    StatisticalValidationManifest,
+    StatisticalValidationEvent,
+    StatisticalValidationLifecycle,
+    PredictionSafetyResult,
+    PredictionSafetyManifest,
+    PredictionSafetyEvent,
+    PredictionSafetyEvidence,
+    CalibrationEvidence,
+    RegressionEvidence,
+    ReferenceDistributionEvidence,
+    StatisticalValidationReplay,
+    PredictionGovernanceDecision,
+    PredictionGovernanceManifest,
+    PredictionGovernanceEvent,
 )
 from app.config import settings
 from app.paper_trading.service import (
@@ -75,6 +94,16 @@ from app.risk.config_service import get_config, update_config
 from app.features import REGISTRY
 from app.evidence.engine import REGISTRY as EVIDENCE_REGISTRY
 from app.external_intelligence.engine import PROVIDERS
+from app.prediction_validation.service import request_validation, execute_validation
+from app.statistical_validation.service import (
+    create_request as create_statistical_request,
+    execute_request as execute_statistical_request,
+    record_lifecycle,
+    replay_request,
+    replay_history,
+)
+from app.prediction_safety.service import persist_safety_result
+from app.prediction_governance.service import persist_governance
 
 
 @asynccontextmanager
@@ -1088,6 +1117,521 @@ def offline_predictions(session: Session = Depends(get_session)) -> list[dict]:
         row.payload
         for row in session.scalars(
             select(OfflinePredictionRecord).order_by(OfflinePredictionRecord.created_at.desc())
+        ).all()
+    ]
+
+
+class ValidationRequestBody(BaseModel):
+    model_config = {"extra": "forbid"}
+    prediction_result_identity: str = Field(min_length=1)
+    reason: str = Field(default="governance validation", min_length=3, max_length=300)
+
+
+@app.post("/api/v3/admin/ml/runtime/validation/request", dependencies=[Depends(authenticated)])
+def create_prediction_validation(
+    body: ValidationRequestBody, session: Session = Depends(get_session)
+) -> dict:
+    with session.begin():
+        return request_validation(
+            session, body.prediction_result_identity, "authenticated-user", body.reason
+        )
+
+
+@app.post(
+    "/api/v3/admin/ml/runtime/validation/{request_id}/execute",
+    dependencies=[Depends(authenticated)],
+)
+def run_prediction_validation(request_id: str, session: Session = Depends(get_session)) -> dict:
+    with session.begin():
+        return execute_validation(session, request_id)
+
+
+@app.get("/api/v3/ml/runtime/validation", dependencies=[Depends(authenticated)])
+def list_prediction_validations(session: Session = Depends(get_session)) -> list[dict]:
+    return [
+        {
+            "request_identity": row.request_identity,
+            "prediction_result_identity": row.prediction_result_identity,
+            "status": row.request_status,
+        }
+        for row in session.scalars(
+            select(PredictionValidationRequest).order_by(
+                PredictionValidationRequest.created_at.desc()
+            )
+        ).all()
+    ]
+
+
+@app.get(
+    "/api/v3/ml/runtime/validation/{request_id}/manifest", dependencies=[Depends(authenticated)]
+)
+def prediction_validation_manifest(
+    request_id: str, session: Session = Depends(get_session)
+) -> dict:
+    row = session.scalar(
+        select(PredictionValidationManifest).where(
+            PredictionValidationManifest.request_identity == request_id
+        )
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Validation manifest not found")
+    return {
+        "manifest_identity": row.manifest_identity,
+        **row.payload,
+        "manifest_checksum": row.manifest_checksum,
+    }
+
+
+@app.get("/api/v3/ml/runtime/validation/{request_id}/events", dependencies=[Depends(authenticated)])
+def prediction_validation_events(
+    request_id: str, session: Session = Depends(get_session)
+) -> list[dict]:
+    return [
+        {"event_identity": row.event_identity, "event_type": row.event_type, "payload": row.payload}
+        for row in session.scalars(
+            select(PredictionValidationEvent)
+            .where(PredictionValidationEvent.request_identity == request_id)
+            .order_by(PredictionValidationEvent.created_at)
+        ).all()
+    ]
+
+
+@app.get("/api/v3/ml/runtime/validation/{request_id}", dependencies=[Depends(authenticated)])
+def prediction_validation_detail(request_id: str, session: Session = Depends(get_session)) -> dict:
+    row = session.scalar(
+        select(PredictionValidationRequest).where(
+            PredictionValidationRequest.request_identity == request_id
+        )
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Validation request not found")
+    return {
+        "request_identity": row.request_identity,
+        "prediction_result_identity": row.prediction_result_identity,
+        "status": row.request_status,
+        "validation_policy": row.validation_policy,
+    }
+
+
+class StatisticalValidationRequestBody(BaseModel):
+    model_config = {"extra": "forbid"}
+    parent_validation_request_identity: str = Field(min_length=1)
+    prediction_result_identity: str = Field(min_length=1)
+
+
+@app.post(
+    "/api/v3/admin/ml/runtime/statistical-validation/request", dependencies=[Depends(authenticated)]
+)
+def create_statistical_validation(
+    body: StatisticalValidationRequestBody, session: Session = Depends(get_session)
+) -> dict:
+    with session.begin():
+        return create_statistical_request(
+            session, body.parent_validation_request_identity, body.prediction_result_identity
+        )
+
+
+@app.post(
+    "/api/v3/admin/ml/runtime/statistical-validation/{request_id}/execute",
+    dependencies=[Depends(authenticated)],
+)
+def run_statistical_validation(request_id: str, session: Session = Depends(get_session)) -> dict:
+    with session.begin():
+        return execute_statistical_request(session, request_id)
+
+
+@app.get("/api/v3/ml/runtime/statistical-validation", dependencies=[Depends(authenticated)])
+def list_statistical_validations(session: Session = Depends(get_session)) -> list[dict]:
+    return [
+        {
+            "request_identity": row.request_identity,
+            "prediction_result_identity": row.prediction_result_identity,
+            "status": row.status,
+        }
+        for row in session.scalars(
+            select(StatisticalValidationRequest).order_by(
+                StatisticalValidationRequest.created_at.desc()
+            )
+        ).all()
+    ]
+
+
+@app.get(
+    "/api/v3/ml/runtime/statistical-validation/{request_id}", dependencies=[Depends(authenticated)]
+)
+def statistical_validation_detail(request_id: str, session: Session = Depends(get_session)) -> dict:
+    row = session.scalar(
+        select(StatisticalValidationRequest).where(
+            StatisticalValidationRequest.request_identity == request_id
+        )
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Statistical validation request not found")
+    result = session.scalar(
+        select(StatisticalValidationResult).where(
+            StatisticalValidationResult.request_identity == request_id
+        )
+    )
+    return {
+        "request_identity": row.request_identity,
+        "status": row.status,
+        "decision": result.decision if result else None,
+        "result_checksum": result.result_checksum if result else None,
+    }
+
+
+@app.get(
+    "/api/v3/ml/runtime/statistical-validation/{request_id}/manifest",
+    dependencies=[Depends(authenticated)],
+)
+def statistical_validation_manifest(
+    request_id: str, session: Session = Depends(get_session)
+) -> dict:
+    row = session.scalar(
+        select(StatisticalValidationManifest).where(
+            StatisticalValidationManifest.request_identity == request_id
+        )
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Statistical validation manifest not found")
+    return {
+        "manifest_identity": row.manifest_identity,
+        "payload": row.payload,
+        "manifest_checksum": row.manifest_checksum,
+    }
+
+
+class StatisticalReplayBody(BaseModel):
+    payload: dict = Field(default_factory=dict)
+
+
+@app.post(
+    "/api/v3/admin/ml/runtime/statistical-validation/{request_id}/replay",
+    dependencies=[Depends(authenticated)],
+)
+def statistical_validation_replay(
+    request_id: str,
+    body: StatisticalReplayBody,
+    session: Session = Depends(get_session),
+) -> dict:
+    try:
+        with session.begin():
+            return replay_request(session, request_id, body.payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get(
+    "/api/v3/ml/runtime/statistical-validation/{request_id}/replays",
+    dependencies=[Depends(authenticated)],
+)
+def statistical_validation_replays(
+    request_id: str, session: Session = Depends(get_session)
+) -> list[dict]:
+    return replay_history(session, request_id)
+
+
+@app.get(
+    "/api/v3/ml/runtime/statistical-validation/{request_id}/replay/{replay_id}",
+    dependencies=[Depends(authenticated)],
+)
+def statistical_validation_replay_detail(
+    request_id: str, replay_id: str, session: Session = Depends(get_session)
+) -> dict:
+    row = session.scalar(
+        select(StatisticalValidationReplay).where(
+            StatisticalValidationReplay.request_identity == request_id,
+            StatisticalValidationReplay.replay_identity == replay_id,
+        )
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Statistical replay not found")
+    return {
+        "replay_identity": row.replay_identity,
+        "request_identity": row.request_identity,
+        "manifest_identity": row.manifest_identity,
+        "status": row.status,
+        "mismatches": row.mismatches,
+        "replay_checksum": row.replay_checksum,
+    }
+
+
+@app.get(
+    "/api/v3/ml/runtime/statistical-validation/{request_id}/events",
+    dependencies=[Depends(authenticated)],
+)
+def statistical_validation_events(
+    request_id: str, session: Session = Depends(get_session)
+) -> list[dict]:
+    return [
+        {"event_identity": row.event_identity, "event_type": row.event_type, "payload": row.payload}
+        for row in session.scalars(
+            select(StatisticalValidationEvent)
+            .where(StatisticalValidationEvent.request_identity == request_id)
+            .order_by(StatisticalValidationEvent.created_at)
+        ).all()
+    ]
+
+
+class StatisticalLifecycleBody(BaseModel):
+    reason: str = Field(min_length=3, max_length=300)
+
+
+@app.post(
+    "/api/v3/admin/ml/runtime/statistical-validation/{request_id}/{action}",
+    dependencies=[Depends(authenticated)],
+)
+def statistical_lifecycle(
+    request_id: str,
+    action: str,
+    body: StatisticalLifecycleBody,
+    session: Session = Depends(get_session),
+) -> dict:
+    if action not in {"invalidate", "supersede"}:
+        raise HTTPException(status_code=400, detail="Unsupported lifecycle action")
+    with session.begin():
+        return record_lifecycle(session, request_id, action, body.reason, "authenticated-user")
+
+
+@app.get(
+    "/api/v3/ml/runtime/statistical-validation/{request_id}/lifecycle",
+    dependencies=[Depends(authenticated)],
+)
+def statistical_lifecycle_history(
+    request_id: str, session: Session = Depends(get_session)
+) -> list[dict]:
+    return [
+        {
+            "lifecycle_identity": row.lifecycle_identity,
+            "action": row.action,
+            "reason": row.reason,
+            "actor_identity": row.actor_identity,
+        }
+        for row in session.scalars(
+            select(StatisticalValidationLifecycle)
+            .where(StatisticalValidationLifecycle.request_identity == request_id)
+            .order_by(StatisticalValidationLifecycle.created_at)
+        ).all()
+    ]
+
+
+class SafetyExecutionBody(BaseModel):
+    model_config = {"extra": "forbid"}
+    prediction_identity: str = Field(min_length=1)
+    rules: dict[str, dict] = Field(default_factory=dict)
+
+
+@app.post("/api/v3/admin/ml/runtime/safety/execute", dependencies=[Depends(authenticated)])
+def execute_prediction_safety(
+    body: SafetyExecutionBody, session: Session = Depends(get_session)
+) -> dict:
+    with session.begin():
+        return persist_safety_result(session, body.prediction_identity, body.rules)
+
+
+@app.get("/api/v3/ml/runtime/safety", dependencies=[Depends(authenticated)])
+def list_prediction_safety(session: Session = Depends(get_session)) -> list[dict]:
+    return [
+        {
+            "safety_identity": row.safety_identity,
+            "prediction_identity": row.prediction_identity,
+            "decision": row.decision,
+            "result_checksum": row.result_checksum,
+        }
+        for row in session.scalars(
+            select(PredictionSafetyResult).order_by(PredictionSafetyResult.created_at.desc())
+        ).all()
+    ]
+
+
+@app.get("/api/v3/ml/runtime/safety/{safety_id}/manifest", dependencies=[Depends(authenticated)])
+def prediction_safety_manifest(safety_id: str, session: Session = Depends(get_session)) -> dict:
+    row = session.scalar(
+        select(PredictionSafetyManifest).where(
+            PredictionSafetyManifest.safety_identity == safety_id
+        )
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Safety manifest not found")
+    return {
+        "manifest_identity": row.manifest_identity,
+        "payload": row.payload,
+        "manifest_checksum": row.manifest_checksum,
+    }
+
+
+@app.get("/api/v3/ml/runtime/safety/{safety_id}/events", dependencies=[Depends(authenticated)])
+def prediction_safety_events(safety_id: str, session: Session = Depends(get_session)) -> list[dict]:
+    return [
+        {"event_identity": row.event_identity, "event_type": row.event_type, "payload": row.payload}
+        for row in session.scalars(
+            select(PredictionSafetyEvent)
+            .where(PredictionSafetyEvent.safety_identity == safety_id)
+            .order_by(PredictionSafetyEvent.created_at)
+        ).all()
+    ]
+
+
+@app.get("/api/v3/ml/runtime/safety/{safety_id}/evidence", dependencies=[Depends(authenticated)])
+def prediction_safety_evidence(
+    safety_id: str, session: Session = Depends(get_session)
+) -> list[dict]:
+    return [
+        {
+            "evidence_identity": row.evidence_identity,
+            "evidence_type": row.evidence_type,
+            "payload": row.payload,
+            "evidence_checksum": row.evidence_checksum,
+        }
+        for row in session.scalars(
+            select(PredictionSafetyEvidence)
+            .where(PredictionSafetyEvidence.safety_identity == safety_id)
+            .order_by(
+                PredictionSafetyEvidence.created_at, PredictionSafetyEvidence.evidence_identity
+            )
+        ).all()
+    ]
+
+
+class GovernanceExecutionBody(BaseModel):
+    model_config = {"extra": "forbid"}
+    prediction_identity: str = Field(min_length=1)
+    outcomes: dict[str, dict] = Field(default_factory=dict)
+    immutable: bool = True
+    manifests_exist: bool = True
+
+
+@app.post("/api/v3/admin/ml/runtime/governance/execute", dependencies=[Depends(authenticated)])
+def execute_prediction_governance(
+    body: GovernanceExecutionBody, session: Session = Depends(get_session)
+) -> dict:
+    outcomes = dict(body.outcomes)
+    outcomes["immutable"] = body.immutable
+    outcomes["manifests_exist"] = body.manifests_exist
+    with session.begin():
+        return persist_governance(session, body.prediction_identity, outcomes)
+
+
+@app.get("/api/v3/ml/runtime/governance", dependencies=[Depends(authenticated)])
+def list_prediction_governance(session: Session = Depends(get_session)) -> list[dict]:
+    return [
+        {
+            "governance_identity": row.governance_identity,
+            "prediction_identity": row.prediction_identity,
+            "decision": row.decision,
+            "decision_checksum": row.decision_checksum,
+        }
+        for row in session.scalars(
+            select(PredictionGovernanceDecision).order_by(
+                PredictionGovernanceDecision.created_at.desc()
+            )
+        ).all()
+    ]
+
+
+@app.get(
+    "/api/v3/ml/runtime/governance/{governance_id}/manifest",
+    dependencies=[Depends(authenticated)],
+)
+def prediction_governance_manifest(
+    governance_id: str, session: Session = Depends(get_session)
+) -> dict:
+    row = session.scalar(
+        select(PredictionGovernanceManifest).where(
+            PredictionGovernanceManifest.governance_identity == governance_id
+        )
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Governance manifest not found")
+    return {
+        "manifest_identity": row.manifest_identity,
+        "payload": row.payload,
+        "manifest_checksum": row.manifest_checksum,
+    }
+
+
+@app.get(
+    "/api/v3/ml/runtime/governance/{governance_id}/events",
+    dependencies=[Depends(authenticated)],
+)
+def prediction_governance_events(
+    governance_id: str, session: Session = Depends(get_session)
+) -> list[dict]:
+    return [
+        {"event_identity": row.event_identity, "event_type": row.event_type, "payload": row.payload}
+        for row in session.scalars(
+            select(PredictionGovernanceEvent)
+            .where(PredictionGovernanceEvent.governance_identity == governance_id)
+            .order_by(PredictionGovernanceEvent.created_at)
+        ).all()
+    ]
+
+
+@app.get(
+    "/api/v3/ml/runtime/statistical-validation/evidence/calibration",
+    dependencies=[Depends(authenticated)],
+)
+def calibration_evidence(session: Session = Depends(get_session)) -> list[dict]:
+    return [
+        {
+            "evidence_identity": row.evidence_identity,
+            "model_version_identity": row.model_version_identity,
+            "task_type": row.task_type,
+            "sample_count": row.sample_count,
+            "status": row.status,
+            "evidence_checksum": row.evidence_checksum,
+        }
+        for row in session.scalars(
+            select(CalibrationEvidence).order_by(
+                CalibrationEvidence.generated_at.desc(), CalibrationEvidence.evidence_identity
+            )
+        ).all()
+    ]
+
+
+@app.get(
+    "/api/v3/ml/runtime/statistical-validation/evidence/regression",
+    dependencies=[Depends(authenticated)],
+)
+def regression_evidence(session: Session = Depends(get_session)) -> list[dict]:
+    return [
+        {
+            "evidence_identity": row.evidence_identity,
+            "prediction_result_identity": row.prediction_result_identity,
+            "predicted_value": row.predicted_value,
+            "residual": row.residual,
+            "status": row.status,
+            "evidence_checksum": row.evidence_checksum,
+        }
+        for row in session.scalars(
+            select(RegressionEvidence).order_by(
+                RegressionEvidence.generated_at.desc(), RegressionEvidence.evidence_identity
+            )
+        ).all()
+    ]
+
+
+@app.get(
+    "/api/v3/ml/runtime/statistical-validation/evidence/reference-distribution",
+    dependencies=[Depends(authenticated)],
+)
+def reference_distribution_evidence(session: Session = Depends(get_session)) -> list[dict]:
+    return [
+        {
+            "evidence_identity": row.evidence_identity,
+            "model_version_identity": row.model_version_identity,
+            "task_type": row.task_type,
+            "lower_bound": row.lower_bound,
+            "upper_bound": row.upper_bound,
+            "sample_count": row.sample_count,
+            "status": row.status,
+            "evidence_checksum": row.evidence_checksum,
+        }
+        for row in session.scalars(
+            select(ReferenceDistributionEvidence).order_by(
+                ReferenceDistributionEvidence.generated_at.desc(),
+                ReferenceDistributionEvidence.evidence_identity,
+            )
         ).all()
     ]
 

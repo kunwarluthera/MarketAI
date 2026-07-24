@@ -9,6 +9,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -808,6 +809,313 @@ class OfflinePredictionRecord(Base):
     payload: Mapped[dict] = mapped_column(JSON)
     lineage: Mapped[dict] = mapped_column(JSON)
     offline_only: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class PredictionValidationPolicy(Base):
+    __tablename__ = "ml_prediction_validation_policies"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    validation_policy_code: Mapped[str] = mapped_column(String(80), index=True)
+    version: Mapped[str] = mapped_column(String(24))
+    description: Mapped[str] = mapped_column(String(300))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    allowed_prediction_statuses: Mapped[list] = mapped_column(JSON)
+    required_prediction_policy: Mapped[dict] = mapped_column(JSON)
+    required_output_contract: Mapped[dict] = mapped_column(JSON)
+    required_model_status: Mapped[str] = mapped_column(String(40))
+    required_manifest_version: Mapped[str] = mapped_column(String(40))
+    validation_mode: Mapped[str] = mapped_column(String(40))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class PredictionValidationRequest(Base):
+    __tablename__ = "ml_prediction_validation_requests"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    request_identity: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    prediction_result_identity: Mapped[str] = mapped_column(String(64), index=True)
+    validation_policy: Mapped[str] = mapped_column(String(100))
+    requested_by: Mapped[str] = mapped_column(String(120))
+    request_reason: Mapped[str] = mapped_column(String(300))
+    request_status: Mapped[str] = mapped_column(String(24), default="requested")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class PredictionValidationRule(Base):
+    __tablename__ = "ml_prediction_validation_rules"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    rule_code: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    description: Mapped[str] = mapped_column(String(300))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class PredictionValidationResult(Base):
+    __tablename__ = "ml_prediction_validation_results"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    request_identity: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    decision: Mapped[str] = mapped_column(String(32))
+    eligibility: Mapped[str] = mapped_column(String(32))
+    rule_outcomes: Mapped[list] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class PredictionValidationManifest(Base):
+    __tablename__ = "ml_prediction_validation_manifests"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    manifest_identity: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    request_identity: Mapped[str] = mapped_column(String(64), index=True)
+    prediction_identity: Mapped[str] = mapped_column(String(64), index=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+    manifest_checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class PredictionValidationEvent(Base):
+    __tablename__ = "ml_prediction_validation_events"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    event_identity: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    request_identity: Mapped[str] = mapped_column(String(64), index=True)
+    event_type: Mapped[str] = mapped_column(String(40))
+    payload: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class StatisticalValidationPolicy(Base):
+    __tablename__ = "ml_statistical_validation_policies"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    policy_code: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    version: Mapped[str] = mapped_column(String(24))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class StatisticalValidationRequest(Base):
+    __tablename__ = "ml_statistical_validation_requests"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    request_identity: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    parent_validation_request_identity: Mapped[str] = mapped_column(String(64), index=True)
+    prediction_result_identity: Mapped[str] = mapped_column(String(64), index=True)
+    policy_code: Mapped[str] = mapped_column(String(100))
+    status: Mapped[str] = mapped_column(String(32), default="requested")
+    request_checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class ConfidenceEvidence(Base):
+    __tablename__ = "ml_confidence_evidence"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    evidence_identity: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    prediction_result_identity: Mapped[str] = mapped_column(String(64), index=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+    evidence_checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class StatisticalValidationResult(Base):
+    __tablename__ = "ml_statistical_validation_results"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    request_identity: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    decision: Mapped[str] = mapped_column(String(32))
+    rule_results: Mapped[list] = mapped_column(JSON)
+    result_checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class StatisticalValidationManifest(Base):
+    __tablename__ = "ml_statistical_validation_manifests"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    manifest_identity: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    request_identity: Mapped[str] = mapped_column(String(64), index=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+    manifest_checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class StatisticalValidationEvent(Base):
+    __tablename__ = "ml_statistical_validation_events"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    event_identity: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    request_identity: Mapped[str] = mapped_column(String(64), index=True)
+    event_type: Mapped[str] = mapped_column(String(48))
+    payload: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class StatisticalValidationLifecycle(Base):
+    __tablename__ = "ml_statistical_validation_lifecycle"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    lifecycle_identity: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    request_identity: Mapped[str] = mapped_column(String(64), index=True)
+    action: Mapped[str] = mapped_column(String(24))
+    reason: Mapped[str] = mapped_column(String(300))
+    actor_identity: Mapped[str] = mapped_column(String(120))
+    payload: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class CalibrationEvidence(Base):
+    __tablename__ = "ml_calibration_evidence"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    evidence_identity: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    model_version_identity: Mapped[str] = mapped_column(String(64), index=True)
+    output_contract_identity: Mapped[str] = mapped_column(String(64))
+    validation_dataset_identity: Mapped[str] = mapped_column(String(64))
+    task_type: Mapped[str] = mapped_column(String(32))
+    sample_count: Mapped[int] = mapped_column(Integer)
+    expected_calibration_error: Mapped[float] = mapped_column(Float)
+    maximum_calibration_error: Mapped[float | None] = mapped_column(Float, nullable=True)
+    brier_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    log_loss: Mapped[float | None] = mapped_column(Float, nullable=True)
+    status: Mapped[str] = mapped_column(String(32))
+    payload: Mapped[dict] = mapped_column(JSON)
+    evidence_checksum: Mapped[str] = mapped_column(String(64))
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    approved_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
+
+class PredictionSafetyPolicy(Base):
+    __tablename__ = "ml_prediction_safety_policies"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    policy_code: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    version: Mapped[str] = mapped_column(String(24))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class PredictionSafetyResult(Base):
+    __tablename__ = "ml_prediction_safety_results"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    safety_identity: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    prediction_identity: Mapped[str] = mapped_column(String(64), index=True)
+    decision: Mapped[str] = mapped_column(String(32))
+    rule_results: Mapped[list] = mapped_column(JSON)
+    result_checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class PredictionSafetyManifest(Base):
+    __tablename__ = "ml_prediction_safety_manifests"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    manifest_identity: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    safety_identity: Mapped[str] = mapped_column(String(64), index=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+    manifest_checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class PredictionSafetyEvent(Base):
+    __tablename__ = "ml_prediction_safety_events"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    event_identity: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    safety_identity: Mapped[str] = mapped_column(String(64), index=True)
+    event_type: Mapped[str] = mapped_column(String(48))
+    payload: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class PredictionSafetyEvidence(Base):
+    __tablename__ = "ml_prediction_safety_evidence"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    evidence_identity: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    safety_identity: Mapped[str] = mapped_column(String(64), index=True)
+    evidence_type: Mapped[str] = mapped_column(String(32))
+    payload: Mapped[dict] = mapped_column(JSON)
+    evidence_checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class PredictionGovernancePolicy(Base):
+    __tablename__ = "ml_prediction_governance_policies"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    policy_code: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    version: Mapped[str] = mapped_column(String(24))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class PredictionGovernanceDecision(Base):
+    __tablename__ = "ml_prediction_governance_decisions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    governance_identity: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    prediction_identity: Mapped[str] = mapped_column(String(64), index=True)
+    decision: Mapped[str] = mapped_column(String(32))
+    payload: Mapped[dict] = mapped_column(JSON)
+    decision_checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class PredictionGovernanceManifest(Base):
+    __tablename__ = "ml_prediction_governance_manifests"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    manifest_identity: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    governance_identity: Mapped[str] = mapped_column(String(64), index=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+    manifest_checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class PredictionGovernanceEvent(Base):
+    __tablename__ = "ml_prediction_governance_events"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    event_identity: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    governance_identity: Mapped[str] = mapped_column(String(64), index=True)
+    event_type: Mapped[str] = mapped_column(String(48))
+    payload: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class RegressionEvidence(Base):
+    __tablename__ = "ml_regression_evidence"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    evidence_identity: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    prediction_result_identity: Mapped[str] = mapped_column(String(64), index=True)
+    model_version_identity: Mapped[str] = mapped_column(String(64), index=True)
+    validation_dataset_identity: Mapped[str] = mapped_column(String(64))
+    predicted_value: Mapped[float] = mapped_column(Float)
+    residual: Mapped[float | None] = mapped_column(Float, nullable=True)
+    interval_lower: Mapped[float | None] = mapped_column(Float, nullable=True)
+    interval_upper: Mapped[float | None] = mapped_column(Float, nullable=True)
+    uncertainty_width: Mapped[float | None] = mapped_column(Float, nullable=True)
+    status: Mapped[str] = mapped_column(String(32))
+    payload: Mapped[dict] = mapped_column(JSON)
+    evidence_checksum: Mapped[str] = mapped_column(String(64))
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ReferenceDistributionEvidence(Base):
+    __tablename__ = "ml_reference_distribution_evidence"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    evidence_identity: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    model_version_identity: Mapped[str] = mapped_column(String(64), index=True)
+    output_contract_identity: Mapped[str] = mapped_column(String(64))
+    validation_dataset_identity: Mapped[str] = mapped_column(String(64))
+    task_type: Mapped[str] = mapped_column(String(32))
+    lower_bound: Mapped[float] = mapped_column(Float)
+    upper_bound: Mapped[float] = mapped_column(Float)
+    tolerance: Mapped[float] = mapped_column(Float, default=0.0)
+    sample_count: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(32))
+    payload: Mapped[dict] = mapped_column(JSON)
+    evidence_checksum: Mapped[str] = mapped_column(String(64))
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class StatisticalValidationReplay(Base):
+    """Immutable persisted result of replaying a validation manifest."""
+    __tablename__ = "ml_statistical_validation_replays"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    replay_identity: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    request_identity: Mapped[str] = mapped_column(String(64), index=True)
+    manifest_identity: Mapped[str] = mapped_column(String(64), index=True)
+    status: Mapped[str] = mapped_column(String(24))
+    mismatches: Mapped[list] = mapped_column(JSON)
+    replay_checksum: Mapped[str] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 

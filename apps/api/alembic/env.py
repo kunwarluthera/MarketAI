@@ -1,4 +1,5 @@
 from logging.config import fileConfig
+import os
 import sys
 from pathlib import Path
 
@@ -18,7 +19,7 @@ def run_migrations_offline():
 
 def run_migrations_online():
     section = config.get_section(config.config_ini_section)
-    section["sqlalchemy.url"] = settings.database_url
+    section["sqlalchemy.url"] = os.environ.get("DATABASE_URL", settings.database_url)
     connectable = engine_from_config(section, prefix="sqlalchemy.", poolclass=pool.NullPool)
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
