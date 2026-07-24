@@ -1070,6 +1070,482 @@ class PredictionGovernanceEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
+class BatchPredictionPolicy(Base):
+    __tablename__ = "ml_batch_prediction_policies"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    policy_code: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    version: Mapped[str] = mapped_column(String(24))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+    checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class BatchPredictionRequest(Base):
+    __tablename__ = "ml_batch_prediction_requests"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    batch_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    requested_by: Mapped[str] = mapped_column(String(128))
+    policy_code: Mapped[str] = mapped_column(String(100))
+    universe_type: Mapped[str] = mapped_column(String(48))
+    universe: Mapped[dict] = mapped_column(JSON)
+    as_of_timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(32), default="created")
+    request_checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class BatchPredictionItem(Base):
+    __tablename__ = "ml_batch_prediction_items"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    batch_id: Mapped[str] = mapped_column(String(64), index=True)
+    ordinal: Mapped[int] = mapped_column(Integer)
+    item_key: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(40), default="pending")
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    outcome: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class BatchPredictionEvent(Base):
+    __tablename__ = "ml_batch_prediction_events"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    batch_id: Mapped[str] = mapped_column(String(64), index=True)
+    event_identity: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    event_type: Mapped[str] = mapped_column(String(48))
+    payload: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class BatchPredictionManifest(Base):
+    __tablename__ = "ml_batch_prediction_manifests"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    batch_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+    checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class BatchPredictionPartition(Base):
+    __tablename__ = "ml_batch_prediction_partitions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    batch_id: Mapped[str] = mapped_column(String(64), index=True)
+    partition_number: Mapped[int] = mapped_column(Integer)
+    first_ordinal: Mapped[int] = mapped_column(Integer)
+    last_ordinal: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(24), default="planned")
+    checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class BatchPredictionAttempt(Base):
+    __tablename__ = "ml_batch_prediction_attempts"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    item_key: Mapped[str] = mapped_column(String(128), index=True)
+    attempt_number: Mapped[int] = mapped_column(Integer)
+    stage: Mapped[str] = mapped_column(String(48))
+    outcome: Mapped[str] = mapped_column(String(32))
+    failure_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    retryable: Mapped[bool] = mapped_column(Boolean, default=False)
+    attempt_checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class BatchPredictionCheckpoint(Base):
+    __tablename__ = "ml_batch_prediction_checkpoints"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    batch_id: Mapped[str] = mapped_column(String(64), index=True)
+    item_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    checkpoint_type: Mapped[str] = mapped_column(String(64))
+    sequence: Mapped[int] = mapped_column(Integer)
+    state_checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class BatchPredictionCancellation(Base):
+    __tablename__ = "ml_batch_prediction_cancellations"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    batch_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    requested_by: Mapped[str] = mapped_column(String(128))
+    reason: Mapped[str] = mapped_column(String(300))
+    status: Mapped[str] = mapped_column(String(24), default="requested")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class BatchPredictionWorkerLease(Base):
+    __tablename__ = "ml_batch_prediction_worker_leases"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    batch_id: Mapped[str] = mapped_column(String(64), index=True)
+    partition_id: Mapped[str] = mapped_column(String(36), index=True)
+    worker_key: Mapped[str] = mapped_column(String(128))
+    lease_token_hash: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(24), default="active")
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class BatchPredictionReplay(Base):
+    __tablename__ = "ml_batch_prediction_replays"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    source_batch_id: Mapped[str] = mapped_column(String(64), index=True)
+    replay_batch_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    mode: Mapped[str] = mapped_column(String(32))
+    checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class ExplainabilityPolicy(Base):
+    __tablename__ = "ml_prediction_explainability_policies"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    policy_code: Mapped[str] = mapped_column(String(100), unique=True)
+    version: Mapped[str] = mapped_column(String(24))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+    checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class ExplainabilityRequest(Base):
+    __tablename__ = "ml_prediction_explainability_requests"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    explainability_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    prediction_identity: Mapped[str] = mapped_column(String(64), index=True)
+    requested_by: Mapped[str] = mapped_column(String(128))
+    status: Mapped[str] = mapped_column(String(24), default="requested")
+    eligibility: Mapped[str] = mapped_column(String(32))
+    payload: Mapped[dict] = mapped_column(JSON)
+    checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class ExplainabilityProvenance(Base):
+    __tablename__ = "ml_prediction_provenance"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    explainability_id: Mapped[str] = mapped_column(String(64), unique=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+    checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class ExplainabilityManifest(Base):
+    __tablename__ = "ml_prediction_explainability_manifests"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    explainability_id: Mapped[str] = mapped_column(String(64), unique=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+    checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class ExplainabilityEvent(Base):
+    __tablename__ = "ml_prediction_explainability_events"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    explainability_id: Mapped[str] = mapped_column(String(64), index=True)
+    event_identity: Mapped[str] = mapped_column(String(64), unique=True)
+    event_type: Mapped[str] = mapped_column(String(48))
+    payload: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class ExplainabilityLineageRecord(Base):
+    __tablename__ = "ml_prediction_explainability_lineage"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    record_identity: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    record_type: Mapped[str] = mapped_column(String(24))
+    source_identity: Mapped[str] = mapped_column(String(64))
+    payload: Mapped[dict] = mapped_column(JSON)
+    checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class AttributionPolicy(Base):
+    __tablename__ = "ml_prediction_attribution_policies"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    policy_code: Mapped[str] = mapped_column(String(100), unique=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    algorithm_priority: Mapped[dict] = mapped_column(JSON)
+    normalize_scores: Mapped[bool] = mapped_column(Boolean, default=True)
+    precision_digits: Mapped[int] = mapped_column(Integer, default=8)
+    checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class AttributionAlgorithm(Base):
+    __tablename__ = "ml_prediction_attribution_algorithms"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    algorithm: Mapped[str] = mapped_column(String(80), unique=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class LocalExplanation(Base):
+    __tablename__ = "ml_prediction_local_explanations"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    explanation_identity: Mapped[str] = mapped_column(String(64), unique=True)
+    explainability_id: Mapped[str] = mapped_column(String(64))
+    prediction_identity: Mapped[str] = mapped_column(String(64))
+    algorithm: Mapped[str] = mapped_column(String(80))
+    payload: Mapped[dict] = mapped_column(JSON)
+    checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class LocalAttribution(Base):
+    __tablename__ = "ml_prediction_local_attributions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    explanation_identity: Mapped[str] = mapped_column(String(64), index=True)
+    feature_name: Mapped[str] = mapped_column(String(128))
+    feature_index: Mapped[int] = mapped_column(Integer)
+    payload: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class GlobalExplainabilityPolicy(Base):
+    __tablename__ = "ml_prediction_global_explainability_policies"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    policy_code: Mapped[str] = mapped_column(String(100), unique=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    minimum_sample_size: Mapped[int] = mapped_column(Integer, default=1)
+    aggregation_strategy: Mapped[str] = mapped_column(String(32), default="mean_absolute")
+    top_feature_limit: Mapped[int] = mapped_column(Integer, default=20)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class GlobalExplanation(Base):
+    __tablename__ = "ml_prediction_global_explanations"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    explanation_identity: Mapped[str] = mapped_column(String(64), unique=True)
+    dataset_identity: Mapped[str] = mapped_column(String(64))
+    model_identity: Mapped[str] = mapped_column(String(64))
+    payload: Mapped[dict] = mapped_column(JSON)
+    checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class GlobalImportance(Base):
+    __tablename__ = "ml_prediction_global_feature_importance"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    explanation_identity: Mapped[str] = mapped_column(String(64), index=True)
+    feature_name: Mapped[str] = mapped_column(String(128))
+    payload: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class GlobalStability(Base):
+    __tablename__ = "ml_prediction_global_stability"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    explanation_identity: Mapped[str] = mapped_column(String(64), unique=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class ExplainabilityGovernance(Base):
+    __tablename__ = "ml_explainability_governance"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    artifact_id: Mapped[str] = mapped_column(String(64), unique=True)
+    status: Mapped[str] = mapped_column(String(24), default="pending")
+    payload: Mapped[dict] = mapped_column(JSON)
+    checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class ExplainabilityGovernanceRecord(Base):
+    __tablename__ = "ml_explainability_governance_records"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    artifact_id: Mapped[str] = mapped_column(String(64), index=True)
+    record_type: Mapped[str] = mapped_column(String(32))
+    payload: Mapped[dict] = mapped_column(JSON)
+    checksum: Mapped[str] = mapped_column(String(64), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class RuntimeOperationPolicy(Base):
+    __tablename__ = "ml_runtime_operation_policies"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    policy_code: Mapped[str] = mapped_column(String(100), unique=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+    checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class RuntimeHealthSnapshot(Base):
+    __tablename__ = "ml_runtime_health_snapshots"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    snapshot_checksum: Mapped[str] = mapped_column(String(64), unique=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class RuntimeService(Base):
+    __tablename__ = "ml_runtime_services"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    service_name: Mapped[str] = mapped_column(String(80))
+    status: Mapped[str] = mapped_column(String(24))
+    payload: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class RuntimeIncident(Base):
+    __tablename__ = "ml_runtime_incidents"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    incident_id: Mapped[str] = mapped_column(String(64), unique=True)
+    severity: Mapped[str] = mapped_column(String(16))
+    status: Mapped[str] = mapped_column(String(24))
+    payload: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class RuntimeReport(Base):
+    __tablename__ = "ml_runtime_reports"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    report_checksum: Mapped[str] = mapped_column(String(64), unique=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class RuntimeOperationalRecord(Base):
+    __tablename__ = "ml_runtime_operational_records"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    record_identity: Mapped[str] = mapped_column(String(64), unique=True)
+    record_type: Mapped[str] = mapped_column(String(32))
+    payload: Mapped[dict] = mapped_column(JSON)
+    checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class EvaluationPolicy(Base):
+    __tablename__ = "ml_evaluation_policies"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    policy_code: Mapped[str] = mapped_column(String(100), unique=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+    checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class EvaluationRequest(Base):
+    __tablename__ = "ml_evaluation_requests"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    evaluation_id: Mapped[str] = mapped_column(String(64), unique=True)
+    dataset_id: Mapped[str] = mapped_column(String(64))
+    model_id: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(24), default="requested")
+    payload: Mapped[dict] = mapped_column(JSON)
+    checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class EvaluationRecord(Base):
+    __tablename__ = "ml_evaluation_records"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    evaluation_id: Mapped[str] = mapped_column(String(64), index=True)
+    record_type: Mapped[str] = mapped_column(String(32))
+    payload: Mapped[dict] = mapped_column(JSON)
+    checksum: Mapped[str] = mapped_column(String(64), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class MetricPolicy(Base):
+    __tablename__ = "ml_metric_policies"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    policy_code: Mapped[str] = mapped_column(String(100), unique=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class MetricResult(Base):
+    __tablename__ = "ml_metric_results"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    evaluation_id: Mapped[str] = mapped_column(String(64), index=True)
+    metric: Mapped[str] = mapped_column(String(48))
+    family: Mapped[str] = mapped_column(String(32))
+    payload: Mapped[dict] = mapped_column(JSON)
+    result_checksum: Mapped[str] = mapped_column(String(64), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class CalibrationPolicy(Base):
+    __tablename__ = "ml_calibration_policies"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    policy_code: Mapped[str] = mapped_column(String(100), unique=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    minimum_samples: Mapped[int] = mapped_column(Integer, default=1)
+    maximum_bins: Mapped[int] = mapped_column(Integer, default=10)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class CalibrationReliability(Base):
+    __tablename__ = "ml_reliability_objects"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    evaluation_id: Mapped[str] = mapped_column(String(64), index=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+    reliability_checksum: Mapped[str] = mapped_column(String(64), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class BenchmarkPolicy(Base):
+    __tablename__ = "ml_benchmark_policies"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    policy_code: Mapped[str] = mapped_column(String(100), unique=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class BenchmarkComparison(Base):
+    __tablename__ = "ml_benchmark_comparisons"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    benchmark_id: Mapped[str] = mapped_column(String(64), unique=True)
+    left_model: Mapped[str] = mapped_column(String(64))
+    right_model: Mapped[str] = mapped_column(String(64))
+    dataset_id: Mapped[str] = mapped_column(String(64))
+    payload: Mapped[dict] = mapped_column(JSON)
+    checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class RegimeEvaluationPolicy(Base):
+    __tablename__ = "ml_regime_evaluation_policies"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    policy_code: Mapped[str] = mapped_column(String(100), unique=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    minimum_samples: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class RegimeEvaluation(Base):
+    __tablename__ = "ml_regime_evaluations"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    evaluation_identity: Mapped[str] = mapped_column(String(64), unique=True)
+    source_evaluation_id: Mapped[str] = mapped_column(String(64))
+    payload: Mapped[dict] = mapped_column(JSON)
+    checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class PromotionReadinessPolicy(Base):
+    __tablename__ = "ml_promotion_policies"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    policy_code: Mapped[str] = mapped_column(String(100), unique=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class PromotionReadiness(Base):
+    __tablename__ = "ml_promotion_readiness"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    readiness_id: Mapped[str] = mapped_column(String(64), unique=True)
+    model_id: Mapped[str] = mapped_column(String(64))
+    dataset_id: Mapped[str] = mapped_column(String(64))
+    payload: Mapped[dict] = mapped_column(JSON)
+    checksum: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
 class RegressionEvidence(Base):
     __tablename__ = "ml_regression_evidence"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
@@ -1108,6 +1584,7 @@ class ReferenceDistributionEvidence(Base):
 
 class StatisticalValidationReplay(Base):
     """Immutable persisted result of replaying a validation manifest."""
+
     __tablename__ = "ml_statistical_validation_replays"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
     replay_identity: Mapped[str] = mapped_column(String(64), unique=True, index=True)

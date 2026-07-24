@@ -5,10 +5,20 @@ import json
 
 
 def checksum(value: object) -> str:
-    return sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
+    return sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()
+    ).hexdigest()
 
 
-def aggregate_outcomes(structural: dict, statistical: dict, safety: dict, *, policy_enabled: bool, immutable: bool, manifests_exist: bool) -> dict:
+def aggregate_outcomes(
+    structural: dict,
+    statistical: dict,
+    safety: dict,
+    *,
+    policy_enabled: bool,
+    immutable: bool,
+    manifests_exist: bool,
+) -> dict:
     if not policy_enabled:
         decision = "rejected"
         reason = "policy_disabled"
@@ -24,10 +34,27 @@ def aggregate_outcomes(structural: dict, statistical: dict, safety: dict, *, pol
     elif safety.get("decision") not in {"safe", "validated"}:
         decision = "abstain"
         reason = "safety_validation_failed"
-    elif "warning" in {structural.get("severity"), statistical.get("severity"), safety.get("severity")}:
+    elif "warning" in {
+        structural.get("severity"),
+        statistical.get("severity"),
+        safety.get("severity"),
+    }:
         decision = "validated_with_warning"
         reason = "validation_warning"
     else:
         decision = "validated"
         reason = None
-    return {"decision": decision, "reason": reason, "checksum": checksum({"structural": structural, "statistical": statistical, "safety": safety, "policy_enabled": policy_enabled, "immutable": immutable, "manifests_exist": manifests_exist})}
+    return {
+        "decision": decision,
+        "reason": reason,
+        "checksum": checksum(
+            {
+                "structural": structural,
+                "statistical": statistical,
+                "safety": safety,
+                "policy_enabled": policy_enabled,
+                "immutable": immutable,
+                "manifests_exist": manifests_exist,
+            }
+        ),
+    }

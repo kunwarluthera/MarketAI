@@ -75,6 +75,30 @@ from app.common.models import (
     PredictionGovernanceDecision,
     PredictionGovernanceManifest,
     PredictionGovernanceEvent,
+    ExplainabilityRequest,
+    ExplainabilityManifest,
+    ExplainabilityEvent,
+    LocalExplanation,
+    LocalAttribution,
+    GlobalExplanation,
+    GlobalImportance,
+    GlobalStability,
+    ExplainabilityGovernance,
+    ExplainabilityGovernanceRecord,
+    RuntimeHealthSnapshot,
+    RuntimeService,
+    RuntimeIncident,
+    RuntimeReport,
+    EvaluationRequest,
+    EvaluationRecord,
+    MetricResult,
+    CalibrationReliability,
+    BenchmarkComparison,
+    RegimeEvaluation,
+    PromotionReadiness,
+    BatchPredictionRequest,
+    BatchPredictionItem,
+    BatchPredictionManifest,
 )
 from app.config import settings
 from app.paper_trading.service import (
@@ -104,6 +128,36 @@ from app.statistical_validation.service import (
 )
 from app.prediction_safety.service import persist_safety_result
 from app.prediction_governance.service import persist_governance
+from app.batch_prediction.service import (
+    create_batch,
+    plan_partitions,
+    cancel_batch,
+    acquire_lease,
+    replay_batch,
+    aggregate_batch,
+    execute_governed_item,
+)
+from app.explainability.service import create_request as create_explainability_request
+from app.attribution.service import create_attribution
+from app.global_explainability.service import create_global
+from app.explainability_governance.service import transition as govern_transition, validate_replay
+from app.runtime_operations.service import snapshot as runtime_snapshot, report as runtime_report
+from app.runtime_operations.service import operational_record
+from app.evaluation_governance.service import (
+    create_request as create_evaluation_request,
+    lifecycle as evaluation_lifecycle,
+)
+from app.metrics_engine.service import calculate as calculate_metric
+from app.calibration_engine.service import run_calibration
+from app.benchmark_engine.service import run_benchmark
+from app.regime_evaluation.service import run_evaluation as run_regime_evaluation
+from app.promotion_readiness.service import run_readiness
+from app.explainability.service import (
+    replay as replay_explainability,
+    compare as compare_explainability,
+    invalidate as invalidate_explainability,
+    supersede as supersede_explainability,
+)
 
 
 @asynccontextmanager
@@ -1567,6 +1621,102 @@ def prediction_governance_events(
     ]
 
 
+class BatchPredictionBody(BaseModel):
+    model_config = {"extra": "forbid"}
+    idempotency_key: str = Field(min_length=1, max_length=128)
+    universe: dict = Field(default_factory=dict)
+    universe_type: str = Field(default="explicit_prediction_inputs", min_length=1)
+    as_of_timestamp: str = Field(min_length=1)
+    policy_code: str = "CONTROLLED_OFFLINE_BATCH_PREDICTION_V1"
+
+
+@app.post("/api/v3/admin/ml/runtime/batch-predictions", dependencies=[Depends(authenticated)])
+def create_batch_prediction(
+    body: BatchPredictionBody, session: Session = Depends(get_session)
+) -> dict:
+    try:
+        with session.begin():
+            return create_batch(session, body.model_dump(), "authenticated-user")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post(
+    "/api/v3/admin/ml/runtime/batch-predictions/{batch_id}/plan",
+    dependencies=[Depends(authenticated)],
+)
+def plan_batch_prediction(batch_id: str, session: Session = Depends(get_session)) -> dict:
+    try:
+        with session.begin():
+            return plan_partitions(session, batch_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+class BatchCancellationBody(BaseModel):
+    model_config = {"extra": "forbid"}
+    reason: str = Field(min_length=3, max_length=300)
+
+
+@app.post(
+    "/api/v3/admin/ml/runtime/batch-predictions/{batch_id}/cancel",
+    dependencies=[Depends(authenticated)],
+)
+def cancel_batch_prediction(
+    batch_id: str, body: BatchCancellationBody, session: Session = Depends(get_session)
+) -> dict:
+    try:
+        with session.begin():
+            return cancel_batch(session, batch_id, "authenticated-user", body.reason)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/v3/ml/runtime/batch-predictions", dependencies=[Depends(authenticated)])
+def list_batch_predictions(session: Session = Depends(get_session)) -> list[dict]:
+    return [
+        {"batch_id": row.batch_id, "status": row.status, "request_checksum": row.request_checksum}
+        for row in session.scalars(
+            select(BatchPredictionRequest).order_by(BatchPredictionRequest.created_at.desc())
+        ).all()
+    ]
+
+
+@app.get("/api/v3/ml/runtime/batch-predictions/{batch_id}", dependencies=[Depends(authenticated)])
+def batch_prediction_detail(batch_id: str, session: Session = Depends(get_session)) -> dict:
+    row = session.scalar(
+        select(BatchPredictionRequest).where(BatchPredictionRequest.batch_id == batch_id)
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    items = session.scalars(
+        select(BatchPredictionItem)
+        .where(BatchPredictionItem.batch_id == batch_id)
+        .order_by(BatchPredictionItem.ordinal)
+    ).all()
+    return {
+        "batch_id": row.batch_id,
+        "status": row.status,
+        "items": [
+            {"ordinal": item.ordinal, "item_key": item.item_key, "status": item.status}
+            for item in items
+        ],
+    }
+
+
+@app.get(
+    "/api/v3/ml/runtime/batch-predictions/{batch_id}/manifest",
+    dependencies=[Depends(authenticated)],
+)
+def batch_prediction_manifest(batch_id: str, session: Session = Depends(get_session)) -> dict:
+    row = session.scalar(
+        select(BatchPredictionManifest).where(BatchPredictionManifest.batch_id == batch_id)
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Batch manifest not found")
+    return {"batch_id": row.batch_id, "payload": row.payload, "checksum": row.checksum}
+
+
 @app.get(
     "/api/v3/ml/runtime/statistical-validation/evidence/calibration",
     dependencies=[Depends(authenticated)],
@@ -1665,6 +1815,695 @@ def alerts(session: Session = Depends(get_session)) -> list[dict]:
         if reconcile(session)["status"] == "ok"
         else [{"severity": "critical", "code": "LEDGER_RECONCILIATION_FAILED"}]
     )
+
+
+class BatchLeaseBody(BaseModel):
+    model_config = {"extra": "forbid"}
+    partition_id: str = Field(min_length=1)
+    worker_key: str = Field(min_length=1)
+
+
+@app.post(
+    "/api/v3/admin/ml/runtime/batch-predictions/{batch_id}/lease",
+    dependencies=[Depends(authenticated)],
+)
+def lease_batch_partition(
+    batch_id: str, body: BatchLeaseBody, session: Session = Depends(get_session)
+) -> dict:
+    try:
+        with session.begin():
+            return acquire_lease(session, batch_id, body.partition_id, body.worker_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+class BatchReplayBody(BaseModel):
+    model_config = {"extra": "forbid"}
+    mode: str = Field(default="exact", pattern="^(exact|failed_items_only)$")
+
+
+@app.post(
+    "/api/v3/admin/ml/runtime/batch-predictions/{batch_id}/replay",
+    dependencies=[Depends(authenticated)],
+)
+def replay_batch_prediction(
+    batch_id: str, body: BatchReplayBody, session: Session = Depends(get_session)
+) -> dict:
+    try:
+        with session.begin():
+            return replay_batch(session, batch_id, body.mode)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get(
+    "/api/v3/ml/runtime/batch-predictions/{batch_id}/aggregate",
+    dependencies=[Depends(authenticated)],
+)
+def aggregate_batch_prediction(batch_id: str, session: Session = Depends(get_session)) -> dict:
+    return aggregate_batch(session, batch_id)
+
+
+class BatchItemExecutionBody(BaseModel):
+    model_config = {"extra": "forbid"}
+    item_key: str = Field(min_length=1)
+    prediction_identity: str = Field(min_length=1)
+    safety_rules: dict[str, dict] = Field(default_factory=dict)
+    statistical_outcome: dict = Field(default_factory=dict)
+
+
+@app.post(
+    "/api/v3/admin/ml/runtime/batch-predictions/{batch_id}/items/execute",
+    dependencies=[Depends(authenticated)],
+)
+def execute_batch_item(
+    batch_id: str, body: BatchItemExecutionBody, session: Session = Depends(get_session)
+) -> dict:
+    try:
+        with session.begin():
+            return execute_governed_item(
+                session,
+                batch_id,
+                body.item_key,
+                body.prediction_identity,
+                body.safety_rules,
+                body.statistical_outcome,
+            )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+class ExplainabilityRequestBody(BaseModel):
+    model_config = {"extra": "forbid"}
+    prediction_identity: str = Field(min_length=1)
+    provenance: dict = Field(default_factory=dict)
+
+
+@app.post("/api/v3/admin/ml/runtime/explainability/request", dependencies=[Depends(authenticated)])
+def request_explainability(
+    body: ExplainabilityRequestBody, session: Session = Depends(get_session)
+) -> dict:
+    with session.begin():
+        return create_explainability_request(
+            session, body.prediction_identity, "authenticated-user", body.provenance
+        )
+
+
+@app.get("/api/v3/ml/runtime/explainability", dependencies=[Depends(authenticated)])
+def list_explainability(session: Session = Depends(get_session)) -> list[dict]:
+    return [
+        {
+            "explainability_id": row.explainability_id,
+            "prediction_identity": row.prediction_identity,
+            "status": row.status,
+            "eligibility": row.eligibility,
+        }
+        for row in session.scalars(
+            select(ExplainabilityRequest).order_by(ExplainabilityRequest.created_at.desc())
+        ).all()
+    ]
+
+
+@app.get(
+    "/api/v3/ml/runtime/explainability/{explainability_id}/manifest",
+    dependencies=[Depends(authenticated)],
+)
+def explainability_manifest(
+    explainability_id: str, session: Session = Depends(get_session)
+) -> dict:
+    row = session.scalar(
+        select(ExplainabilityManifest).where(
+            ExplainabilityManifest.explainability_id == explainability_id
+        )
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Explainability manifest not found")
+    return {
+        "explainability_id": row.explainability_id,
+        "payload": row.payload,
+        "checksum": row.checksum,
+    }
+
+
+@app.get(
+    "/api/v3/ml/runtime/explainability/{explainability_id}/events",
+    dependencies=[Depends(authenticated)],
+)
+def explainability_events(
+    explainability_id: str, session: Session = Depends(get_session)
+) -> list[dict]:
+    return [
+        {"event_identity": row.event_identity, "event_type": row.event_type, "payload": row.payload}
+        for row in session.scalars(
+            select(ExplainabilityEvent)
+            .where(ExplainabilityEvent.explainability_id == explainability_id)
+            .order_by(ExplainabilityEvent.created_at)
+        ).all()
+    ]
+
+
+class ExplainabilityLineageBody(BaseModel):
+    model_config = {"extra": "forbid"}
+    source_identity: str = Field(min_length=1)
+    right_identity: str | None = None
+    successor_identity: str | None = None
+    reason: str | None = None
+
+
+@app.post("/api/v3/admin/ml/runtime/explainability/replay", dependencies=[Depends(authenticated)])
+def replay_explainability_api(
+    body: ExplainabilityLineageBody, session: Session = Depends(get_session)
+) -> dict:
+    with session.begin():
+        return replay_explainability(session, body.source_identity)
+
+
+@app.post("/api/v3/admin/ml/runtime/explainability/compare", dependencies=[Depends(authenticated)])
+def compare_explainability_api(
+    body: ExplainabilityLineageBody, session: Session = Depends(get_session)
+) -> dict:
+    if not body.right_identity:
+        raise HTTPException(status_code=400, detail="right_identity required")
+    with session.begin():
+        return compare_explainability(session, body.source_identity, body.right_identity)
+
+
+@app.post(
+    "/api/v3/admin/ml/runtime/explainability/invalidate", dependencies=[Depends(authenticated)]
+)
+def invalidate_explainability_api(
+    body: ExplainabilityLineageBody, session: Session = Depends(get_session)
+) -> dict:
+    if not body.reason:
+        raise HTTPException(status_code=400, detail="reason required")
+    with session.begin():
+        return invalidate_explainability(session, body.source_identity, body.reason)
+
+
+@app.post(
+    "/api/v3/admin/ml/runtime/explainability/supersede", dependencies=[Depends(authenticated)]
+)
+def supersede_explainability_api(
+    body: ExplainabilityLineageBody, session: Session = Depends(get_session)
+) -> dict:
+    if not body.successor_identity:
+        raise HTTPException(status_code=400, detail="successor_identity required")
+    with session.begin():
+        return supersede_explainability(session, body.source_identity, body.successor_identity)
+
+
+class AttributionBody(BaseModel):
+    model_config = {"extra": "forbid"}
+    explainability_id: str = Field(min_length=1)
+    prediction_identity: str = Field(min_length=1)
+    model_family: str = Field(min_length=1)
+    features: list[dict] = Field(default_factory=list)
+
+
+@app.post("/api/v3/admin/ml/runtime/explainability/local", dependencies=[Depends(authenticated)])
+def create_local_attribution(
+    body: AttributionBody, session: Session = Depends(get_session)
+) -> dict:
+    with session.begin():
+        return create_attribution(
+            session,
+            body.explainability_id,
+            body.prediction_identity,
+            body.model_family,
+            body.features,
+        )
+
+
+@app.get(
+    "/api/v3/ml/runtime/explainability/local/{explanation_id}",
+    dependencies=[Depends(authenticated)],
+)
+def local_explanation(explanation_id: str, session: Session = Depends(get_session)) -> dict:
+    row = session.scalar(
+        select(LocalExplanation).where(LocalExplanation.explanation_identity == explanation_id)
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Local explanation not found")
+    return {
+        "explanation_identity": row.explanation_identity,
+        "algorithm": row.algorithm,
+        "payload": row.payload,
+        "checksum": row.checksum,
+    }
+
+
+@app.get(
+    "/api/v3/ml/runtime/explainability/local/{explanation_id}/features",
+    dependencies=[Depends(authenticated)],
+)
+def local_explanation_features(
+    explanation_id: str, session: Session = Depends(get_session)
+) -> list[dict]:
+    return [
+        row.payload
+        for row in session.scalars(
+            select(LocalAttribution)
+            .where(LocalAttribution.explanation_identity == explanation_id)
+            .order_by(LocalAttribution.feature_index)
+        ).all()
+    ]
+
+
+class GlobalExplainabilityBody(BaseModel):
+    model_config = {"extra": "forbid"}
+    dataset_identity: str = Field(min_length=1)
+    model_identity: str = Field(min_length=1)
+    sample_count: int = Field(ge=1)
+    rows: list[dict] = Field(default_factory=list)
+
+
+@app.post("/api/v3/admin/ml/runtime/explainability/global", dependencies=[Depends(authenticated)])
+def create_global_explanation(
+    body: GlobalExplainabilityBody, session: Session = Depends(get_session)
+) -> dict:
+    with session.begin():
+        return create_global(
+            session, body.dataset_identity, body.model_identity, body.rows, body.sample_count
+        )
+
+
+@app.get(
+    "/api/v3/ml/runtime/explainability/global/{explanation_id}",
+    dependencies=[Depends(authenticated)],
+)
+def global_explanation(explanation_id: str, session: Session = Depends(get_session)) -> dict:
+    row = session.scalar(
+        select(GlobalExplanation).where(GlobalExplanation.explanation_identity == explanation_id)
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Global explanation not found")
+    return {
+        "explanation_identity": row.explanation_identity,
+        "payload": row.payload,
+        "checksum": row.checksum,
+    }
+
+
+@app.get(
+    "/api/v3/ml/runtime/explainability/global/{explanation_id}/importance",
+    dependencies=[Depends(authenticated)],
+)
+def global_importance(explanation_id: str, session: Session = Depends(get_session)) -> list[dict]:
+    return [
+        row.payload
+        for row in session.scalars(
+            select(GlobalImportance).where(GlobalImportance.explanation_identity == explanation_id)
+        ).all()
+    ]
+
+
+@app.get(
+    "/api/v3/ml/runtime/explainability/global/{explanation_id}/stability",
+    dependencies=[Depends(authenticated)],
+)
+def global_stability(explanation_id: str, session: Session = Depends(get_session)) -> dict:
+    row = session.scalar(
+        select(GlobalStability).where(GlobalStability.explanation_identity == explanation_id)
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Global stability not found")
+    return row.payload
+
+
+class GovernanceBody(BaseModel):
+    model_config = {"extra": "forbid"}
+    artifact_id: str = Field(min_length=1)
+    reason: str = Field(default="governance action", min_length=3)
+    expected_checksum: str | None = None
+
+
+def _governance_action(body: GovernanceBody, target: str, session: Session) -> dict:
+    with session.begin():
+        return govern_transition(session, body.artifact_id, target, {"reason": body.reason})
+
+
+@app.post("/api/v3/admin/ml/runtime/explainability/review", dependencies=[Depends(authenticated)])
+def review_explainability(body: GovernanceBody, session: Session = Depends(get_session)) -> dict:
+    return _governance_action(body, "approved", session)
+
+
+@app.post("/api/v3/admin/ml/runtime/explainability/publish", dependencies=[Depends(authenticated)])
+def publish_explainability(body: GovernanceBody, session: Session = Depends(get_session)) -> dict:
+    return _governance_action(body, "published", session)
+
+
+@app.post("/api/v3/admin/ml/runtime/explainability/revoke", dependencies=[Depends(authenticated)])
+def revoke_explainability(body: GovernanceBody, session: Session = Depends(get_session)) -> dict:
+    return _governance_action(body, "revoked", session)
+
+
+@app.post(
+    "/api/v3/admin/ml/runtime/explainability/replay-validate", dependencies=[Depends(authenticated)]
+)
+def replay_validate_explainability(
+    body: GovernanceBody, session: Session = Depends(get_session)
+) -> dict:
+    if not body.expected_checksum:
+        raise HTTPException(status_code=400, detail="expected_checksum required")
+    with session.begin():
+        return validate_replay(session, body.artifact_id, body.expected_checksum)
+
+
+@app.get(
+    "/api/v3/ml/runtime/explainability/{artifact_id}/governance",
+    dependencies=[Depends(authenticated)],
+)
+def explainability_governance(artifact_id: str, session: Session = Depends(get_session)) -> dict:
+    row = session.scalar(
+        select(ExplainabilityGovernance).where(ExplainabilityGovernance.artifact_id == artifact_id)
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Governance record not found")
+    return {"artifact_id": row.artifact_id, "status": row.status, "checksum": row.checksum}
+
+
+@app.get(
+    "/api/v3/ml/runtime/explainability/{artifact_id}/report", dependencies=[Depends(authenticated)]
+)
+def explainability_report(artifact_id: str, session: Session = Depends(get_session)) -> dict:
+    rows = session.scalars(
+        select(ExplainabilityGovernanceRecord).where(
+            ExplainabilityGovernanceRecord.artifact_id == artifact_id
+        )
+    ).all()
+    return {
+        "artifact_id": artifact_id,
+        "records": [
+            {"type": row.record_type, "payload": row.payload, "checksum": row.checksum}
+            for row in rows
+        ],
+    }
+
+
+class RuntimePayload(BaseModel):
+    model_config = {"extra": "forbid"}
+    payload: dict = Field(default_factory=dict)
+
+
+@app.post("/api/v3/admin/ml/runtime/operations/snapshot", dependencies=[Depends(authenticated)])
+def create_runtime_snapshot(body: RuntimePayload, session: Session = Depends(get_session)) -> dict:
+    with session.begin():
+        return runtime_snapshot(session, body.payload)
+
+
+@app.post("/api/v3/admin/ml/runtime/operations/report", dependencies=[Depends(authenticated)])
+def create_runtime_report(body: RuntimePayload, session: Session = Depends(get_session)) -> dict:
+    with session.begin():
+        return runtime_report(session, body.payload)
+
+
+@app.post("/api/v3/admin/ml/runtime/operations/reconcile", dependencies=[Depends(authenticated)])
+def reconcile_runtime(body: RuntimePayload, session: Session = Depends(get_session)) -> dict:
+    with session.begin():
+        return operational_record(session, "reconciliation_completed", body.payload)
+
+
+@app.get("/api/v3/ml/runtime/operations/health", dependencies=[Depends(authenticated)])
+def runtime_health(session: Session = Depends(get_session)) -> list[dict]:
+    return [
+        {"snapshot_checksum": row.snapshot_checksum, "payload": row.payload}
+        for row in session.scalars(
+            select(RuntimeHealthSnapshot).order_by(RuntimeHealthSnapshot.created_at.desc())
+        ).all()
+    ]
+
+
+@app.get("/api/v3/ml/runtime/operations/services", dependencies=[Depends(authenticated)])
+def runtime_services(session: Session = Depends(get_session)) -> list[dict]:
+    return [
+        {"service_name": row.service_name, "status": row.status, "payload": row.payload}
+        for row in session.scalars(select(RuntimeService)).all()
+    ]
+
+
+@app.get("/api/v3/ml/runtime/operations/incidents", dependencies=[Depends(authenticated)])
+def runtime_incidents(session: Session = Depends(get_session)) -> list[dict]:
+    return [
+        {
+            "incident_id": row.incident_id,
+            "severity": row.severity,
+            "status": row.status,
+            "payload": row.payload,
+        }
+        for row in session.scalars(select(RuntimeIncident)).all()
+    ]
+
+
+@app.get("/api/v3/ml/runtime/operations/reports", dependencies=[Depends(authenticated)])
+def runtime_reports(session: Session = Depends(get_session)) -> list[dict]:
+    return [
+        {"report_checksum": row.report_checksum, "payload": row.payload}
+        for row in session.scalars(
+            select(RuntimeReport).order_by(RuntimeReport.created_at.desc())
+        ).all()
+    ]
+
+
+class EvaluationBody(BaseModel):
+    model_config = {"extra": "forbid"}
+    dataset_id: str = Field(min_length=1)
+    model_id: str = Field(min_length=1)
+    lineage: dict = Field(default_factory=dict)
+
+
+@app.post("/api/v3/admin/ml/runtime/evaluation/request", dependencies=[Depends(authenticated)])
+def request_evaluation(body: EvaluationBody, session: Session = Depends(get_session)) -> dict:
+    with session.begin():
+        return create_evaluation_request(session, body.dataset_id, body.model_id, body.lineage)
+
+
+@app.get("/api/v3/ml/runtime/evaluation", dependencies=[Depends(authenticated)])
+def list_evaluations(session: Session = Depends(get_session)) -> list[dict]:
+    return [
+        {
+            "evaluation_id": row.evaluation_id,
+            "dataset_id": row.dataset_id,
+            "model_id": row.model_id,
+            "status": row.status,
+        }
+        for row in session.scalars(
+            select(EvaluationRequest).order_by(EvaluationRequest.created_at.desc())
+        ).all()
+    ]
+
+
+@app.get(
+    "/api/v3/ml/runtime/evaluation/{evaluation_id}/records", dependencies=[Depends(authenticated)]
+)
+def evaluation_records(evaluation_id: str, session: Session = Depends(get_session)) -> list[dict]:
+    return [
+        {"record_type": row.record_type, "payload": row.payload, "checksum": row.checksum}
+        for row in session.scalars(
+            select(EvaluationRecord)
+            .where(EvaluationRecord.evaluation_id == evaluation_id)
+            .order_by(EvaluationRecord.created_at)
+        ).all()
+    ]
+
+
+class EvaluationLifecycleBody(BaseModel):
+    model_config = {"extra": "forbid"}
+    evaluation_id: str = Field(min_length=1)
+    related_id: str | None = None
+    reason: str | None = None
+
+
+def _evaluation_lifecycle(body: EvaluationLifecycleBody, event: str, session: Session) -> dict:
+    with session.begin():
+        return evaluation_lifecycle(
+            session,
+            body.evaluation_id,
+            event,
+            {"related_id": body.related_id, "reason": body.reason},
+        )
+
+
+@app.post("/api/v3/admin/ml/runtime/evaluation/replay", dependencies=[Depends(authenticated)])
+def replay_evaluation(
+    body: EvaluationLifecycleBody, session: Session = Depends(get_session)
+) -> dict:
+    return _evaluation_lifecycle(body, "replay", session)
+
+
+@app.post("/api/v3/admin/ml/runtime/evaluation/compare", dependencies=[Depends(authenticated)])
+def compare_evaluation(
+    body: EvaluationLifecycleBody, session: Session = Depends(get_session)
+) -> dict:
+    return _evaluation_lifecycle(body, "comparison", session)
+
+
+@app.post("/api/v3/admin/ml/runtime/evaluation/invalidate", dependencies=[Depends(authenticated)])
+def invalidate_evaluation(
+    body: EvaluationLifecycleBody, session: Session = Depends(get_session)
+) -> dict:
+    return _evaluation_lifecycle(body, "invalidation", session)
+
+
+@app.post("/api/v3/admin/ml/runtime/evaluation/supersede", dependencies=[Depends(authenticated)])
+def supersede_evaluation(
+    body: EvaluationLifecycleBody, session: Session = Depends(get_session)
+) -> dict:
+    return _evaluation_lifecycle(body, "supersession", session)
+
+
+class MetricBody(BaseModel):
+    model_config = {"extra": "forbid"}
+    evaluation_id: str = Field(min_length=1)
+    metric: str = Field(min_length=1)
+    actual: list[float]
+    predicted: list[float]
+
+
+@app.post("/api/v3/admin/ml/runtime/evaluation/metrics", dependencies=[Depends(authenticated)])
+def calculate_evaluation_metric(body: MetricBody, session: Session = Depends(get_session)) -> dict:
+    with session.begin():
+        return calculate_metric(
+            session, body.evaluation_id, body.metric, body.actual, body.predicted
+        )
+
+
+@app.get(
+    "/api/v3/ml/runtime/evaluation/{evaluation_id}/metrics", dependencies=[Depends(authenticated)]
+)
+def evaluation_metrics(evaluation_id: str, session: Session = Depends(get_session)) -> list[dict]:
+    return [
+        row.payload
+        for row in session.scalars(
+            select(MetricResult).where(MetricResult.evaluation_id == evaluation_id)
+        ).all()
+    ]
+
+
+class CalibrationBody(BaseModel):
+    model_config = {"extra": "forbid"}
+    evaluation_id: str = Field(min_length=1)
+    probabilities: list[float]
+    outcomes: list[int]
+
+
+@app.post("/api/v3/admin/ml/evaluation/calibration/run", dependencies=[Depends(authenticated)])
+def run_evaluation_calibration(
+    body: CalibrationBody, session: Session = Depends(get_session)
+) -> dict:
+    with session.begin():
+        return run_calibration(session, body.evaluation_id, body.probabilities, body.outcomes)
+
+
+@app.get("/api/v3/ml/evaluation/{evaluation_id}/calibration", dependencies=[Depends(authenticated)])
+def evaluation_calibration(
+    evaluation_id: str, session: Session = Depends(get_session)
+) -> list[dict]:
+    return [
+        row.payload
+        for row in session.scalars(
+            select(CalibrationReliability).where(
+                CalibrationReliability.evaluation_id == evaluation_id
+            )
+        ).all()
+    ]
+
+
+@app.get("/api/v3/ml/evaluation/{evaluation_id}/reliability", dependencies=[Depends(authenticated)])
+def evaluation_reliability(
+    evaluation_id: str, session: Session = Depends(get_session)
+) -> list[dict]:
+    return evaluation_calibration(evaluation_id, session)
+
+
+class BenchmarkBody(BaseModel):
+    model_config = {"extra": "forbid"}
+    left_model: str = Field(min_length=1)
+    right_model: str = Field(min_length=1)
+    dataset_id: str = Field(min_length=1)
+    left_metrics: dict[str, float] = Field(default_factory=dict)
+    right_metrics: dict[str, float] = Field(default_factory=dict)
+
+
+@app.post("/api/v3/admin/ml/benchmark/run", dependencies=[Depends(authenticated)])
+def run_model_benchmark(body: BenchmarkBody, session: Session = Depends(get_session)) -> dict:
+    with session.begin():
+        return run_benchmark(
+            session,
+            body.left_model,
+            body.right_model,
+            body.dataset_id,
+            body.left_metrics,
+            body.right_metrics,
+        )
+
+
+@app.get("/api/v3/ml/benchmark/{benchmark_id}", dependencies=[Depends(authenticated)])
+def benchmark_detail(benchmark_id: str, session: Session = Depends(get_session)) -> dict:
+    row = session.scalar(
+        select(BenchmarkComparison).where(BenchmarkComparison.benchmark_id == benchmark_id)
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Benchmark not found")
+    return {
+        "benchmark_id": row.benchmark_id,
+        "left_model": row.left_model,
+        "right_model": row.right_model,
+        "payload": row.payload,
+        "checksum": row.checksum,
+    }
+
+
+class RegimeEvaluationBody(BaseModel):
+    model_config = {"extra": "forbid"}
+    evaluation_id: str = Field(min_length=1)
+    groups: dict[str, list[float]] = Field(default_factory=dict)
+
+
+@app.post("/api/v3/admin/ml/evaluation/regime", dependencies=[Depends(authenticated)])
+def run_regime(body: RegimeEvaluationBody, session: Session = Depends(get_session)) -> dict:
+    with session.begin():
+        return run_regime_evaluation(session, body.evaluation_id, body.groups)
+
+
+@app.get("/api/v3/ml/evaluation/{evaluation_id}/regime", dependencies=[Depends(authenticated)])
+def regime_result(evaluation_id: str, session: Session = Depends(get_session)) -> list[dict]:
+    return [
+        row.payload
+        for row in session.scalars(
+            select(RegimeEvaluation).where(RegimeEvaluation.source_evaluation_id == evaluation_id)
+        ).all()
+    ]
+
+
+class PromotionReadinessBody(BaseModel):
+    model_config = {"extra": "forbid"}
+    model_id: str = Field(min_length=1)
+    dataset_id: str = Field(min_length=1)
+    evidence: dict[str, bool] = Field(default_factory=dict)
+
+
+@app.post("/api/v3/admin/ml/promotion/readiness/run", dependencies=[Depends(authenticated)])
+def run_promotion_readiness(
+    body: PromotionReadinessBody, session: Session = Depends(get_session)
+) -> dict:
+    with session.begin():
+        return run_readiness(session, body.model_id, body.dataset_id, body.evidence)
+
+
+@app.get("/api/v3/ml/promotion/{readiness_id}", dependencies=[Depends(authenticated)])
+def promotion_readiness(readiness_id: str, session: Session = Depends(get_session)) -> dict:
+    row = session.scalar(
+        select(PromotionReadiness).where(PromotionReadiness.readiness_id == readiness_id)
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Readiness record not found")
+    return {
+        "readiness_id": row.readiness_id,
+        "model_id": row.model_id,
+        "dataset_id": row.dataset_id,
+        "payload": row.payload,
+        "checksum": row.checksum,
+    }
 
 
 @app.websocket("/api/v1/ws/market")

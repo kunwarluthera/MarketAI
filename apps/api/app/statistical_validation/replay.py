@@ -1,4 +1,5 @@
 """Durable, deterministic replay/comparison workflow for statistical manifests."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -56,4 +57,3 @@ def persist_replay(
         )
     )
     return {**payload, "replay_checksum": replay_checksum}
-

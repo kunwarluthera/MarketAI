@@ -26,9 +26,7 @@ from app.statistical_validation.core import (
 POLICY_CODE = "CONTROLLED_STATISTICAL_PREDICTION_VALIDATION_V1"
 
 
-def replay_request(
-    session: Session, request_identity: str, replay_payload: dict
-) -> dict:
+def replay_request(session: Session, request_identity: str, replay_payload: dict) -> dict:
     """Persist an immutable, idempotent comparison against the request manifest."""
     manifest = session.scalar(
         select(StatisticalValidationManifest).where(
@@ -42,7 +40,11 @@ def replay_request(
     mismatches = [key for key in keys if expected.get(key) != replay_payload.get(key)]
     status = "matched" if not mismatches else "mismatched"
     replay_identity = checksum(
-        {"request": request_identity, "manifest": manifest.manifest_identity, "payload": replay_payload}
+        {
+            "request": request_identity,
+            "manifest": manifest.manifest_identity,
+            "payload": replay_payload,
+        }
     )
     existing = session.scalar(
         select(StatisticalValidationReplay).where(
